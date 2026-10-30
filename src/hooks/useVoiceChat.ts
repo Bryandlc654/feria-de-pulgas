@@ -142,14 +142,35 @@ export function useVoiceChat(
   const enableMicrophone = async () => {
     try {
       setMicError(null);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: false,
-      });
+
+      // Check if getUserMedia is supported in current context
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        if (typeof window !== 'undefined' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+          setMicError('iOS Safari requiere conexión HTTPS segura para habilitar el micrófono.');
+        } else {
+          setMicError('Tu navegador no soporta captura de audio (getUserMedia).');
+        }
+        return;
+      }
+
+      // Try with optimal constraints first, then fallback to basic { audio: true }
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: false,
+        });
+      } catch (advancedErr) {
+        // Fallback for Safari/WebKit with simplified constraints
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: false,
+        });
+      }
 
       localStreamRef.current = stream;
       setIsMicEnabled(true);
@@ -173,7 +194,15 @@ export function useVoiceChat(
       }
     } catch (err: any) {
       console.error('Microphone access denied:', err);
-      setMicError('No se pudo acceder al micrófono. Por favor permite los permisos.');
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setMicError('Permiso denegado. Ve a Ajustes de iPhone > Safari > Micrófono y selecciona "Permitir".');
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        setMicError('No se encontró ningún micrófono disponible en el dispositivo.');
+      } else if (typeof window !== 'undefined' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+        setMicError('iOS Safari bloquea el micrófono en conexiones HTTP no seguras. Usa el enlace con HTTPS.');
+      } else {
+        setMicError(err.message || 'Error al acceder al micrófono. Verifica los permisos de Safari.');
+      }
     }
   };
 
